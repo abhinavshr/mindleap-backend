@@ -5,6 +5,8 @@ require('dotenv').config();
 
 const sequelize    = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
+const gameRoutes = require('./routes/gameRoutes');
+
 
 const app = express();
 
@@ -17,6 +19,7 @@ app.use(express.json());
 app.use(cookieParser());
 
 app.use('/api/auth', authRoutes);
+app.use('/api/game', gameRoutes);
 
 // Connect to DB then start server
 const PORT = process.env.PORT || 5000;
