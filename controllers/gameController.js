@@ -1,19 +1,40 @@
-const { Op }            = require('sequelize');
-const { getTodaysWord } = require('../utils/wordSelector');
-const Game              = require('../models/Game');
-const Leaderboard       = require('../models/Leaderboard');
+const { Op }                              = require('sequelize');
+const { getWordForUser, getWordForGuest } = require('../utils/wordSelector');
+const Game                                = require('../models/Game');
+const Leaderboard                         = require('../models/Leaderboard');
+const { v4: uuidv4 }                      = require('uuid');
+
+// ─── Helper: get or create guest session token ────────────────────────────────
+const getGuestToken = (req, res) => {
+    let token = req.cookies?.guestToken;
+    if (!token) {
+        token = uuidv4();
+        res.cookie('guestToken', token, {
+            httpOnly: true,
+            maxAge:   7 * 24 * 60 * 60 * 1000,  // 7 days
+        });
+    }
+    return token;
+};
 
 // ─── Get Daily Info ───────────────────────────────────────────────────────────
 const getDailyInfo = async (req, res) => {
     try {
-        const word = await getTodaysWord();
+        const isAuth      = req.user !== null && req.user !== undefined;
+        const MAX_GUESSES = isAuth ? 6 : 5;
+
+        let word;
+
+        if (isAuth) {
+            word = await getWordForUser(req.user.id);
+        } else {
+            const guestToken = getGuestToken(req, res);
+            word             = await getWordForGuest(guestToken);
+        }
 
         if (!word) {
             return res.status(503).json({ message: 'No word available for today. Please try again later.' });
         }
-
-        const isAuth      = req.user !== null && req.user !== undefined;
-        const MAX_GUESSES = isAuth ? 6 : 1;
 
         if (!isAuth) {
             return res.status(200).json({
@@ -21,16 +42,13 @@ const getDailyInfo = async (req, res) => {
                 maxGuesses:       MAX_GUESSES,
                 remainingGuesses: MAX_GUESSES,
                 isAuth,
-                date:             word.date,
+                date:             new Date().toISOString().split('T')[0],
             });
         }
 
-        // ── Check if auth user already played today ───────────────────
+        // ── Check if auth user already has a game today ───────────────
         const existingGame = await Game.findOne({
-            where: {
-                user_id: req.user.id,
-                word_id: word.id,
-            },
+            where: { user_id: req.user.id, word_id: word.id },
         });
 
         if (existingGame) {
@@ -47,7 +65,7 @@ const getDailyInfo = async (req, res) => {
                 won:              !!existingGame.won,
                 guesses:          existingGame.guesses,
                 isAuth,
-                date:             word.date,
+                date:             new Date().toISOString().split('T')[0],
                 alreadyPlayed:    existingGame.won || usedGuesses >= MAX_GUESSES,
             });
         }
@@ -59,7 +77,7 @@ const getDailyInfo = async (req, res) => {
             usedGuesses:      0,
             won:              false,
             isAuth,
-            date:             word.date,
+            date:             new Date().toISOString().split('T')[0],
             alreadyPlayed:    false,
         });
 
@@ -74,24 +92,21 @@ const evaluateGuess = (guess, answer) => {
     const result    = Array(5).fill('absent');
     const answerArr = answer.split('');
     const guessArr  = guess.split('');
-    const answerMap = {};
 
-    // ── First pass: mark correct letters ─────────────────────────────
     guessArr.forEach((letter, i) => {
         if (letter === answerArr[i]) {
-            result[i]        = 'correct';
-            answerArr[i]     = null;
-            guessArr[i]      = null;
+            result[i]    = 'correct';
+            answerArr[i] = null;
+            guessArr[i]  = null;
         }
     });
 
-    // ── Second pass: mark present letters ────────────────────────────
     guessArr.forEach((letter, i) => {
         if (!letter) return;
         const foundIndex = answerArr.indexOf(letter);
         if (foundIndex !== -1) {
-            result[i]              = 'present';
-            answerArr[foundIndex]  = null;
+            result[i]             = 'present';
+            answerArr[foundIndex] = null;
         }
     });
 
@@ -103,8 +118,7 @@ const updateLeaderboard = async (userId, won, attempts) => {
     let board = await Leaderboard.findOne({ where: { user_id: userId } });
 
     if (!board) {
-        // Create new leaderboard entry
-        board = await Leaderboard.create({
+        return await Leaderboard.create({
             user_id:        userId,
             total_wins:     won ? 1 : 0,
             total_games:    1,
@@ -113,14 +127,13 @@ const updateLeaderboard = async (userId, won, attempts) => {
             avg_attempts:   attempts,
             last_played:    new Date(),
         });
-        return board;
     }
 
-    const newTotalGames  = board.total_games + 1;
-    const newTotalWins   = board.total_wins + (won ? 1 : 0);
-    const newStreak      = won ? board.current_streak + 1 : 0;
-    const newMaxStreak   = Math.max(board.max_streak, newStreak);
-    const newAvg         = parseFloat(
+    const newTotalGames = board.total_games + 1;
+    const newTotalWins  = board.total_wins + (won ? 1 : 0);
+    const newStreak     = won ? board.current_streak + 1 : 0;
+    const newMaxStreak  = Math.max(board.max_streak, newStreak);
+    const newAvg        = parseFloat(
         ((board.avg_attempts * board.total_games + attempts) / newTotalGames).toFixed(2)
     );
 
@@ -141,70 +154,58 @@ const submitGuess = async (req, res) => {
     try {
         const { guess } = req.body;
 
-        // ── Validate guess ────────────────────────────────────────────
-        if (!guess) {
-            return res.status(400).json({ message: 'Guess is required.' });
-        }
-
-        if (guess.length !== 5) {
-            return res.status(400).json({ message: 'Guess must be exactly 5 letters.' });
-        }
-
-        if (!/^[a-zA-Z]+$/.test(guess)) {
-            return res.status(400).json({ message: 'Guess must contain only letters.' });
-        }
+        if (!guess)              return res.status(400).json({ message: 'Guess is required.' });
+        if (guess.length !== 5)  return res.status(400).json({ message: 'Guess must be exactly 5 letters.' });
+        if (!/^[a-zA-Z]+$/.test(guess)) return res.status(400).json({ message: 'Guess must contain only letters.' });
 
         const normalizedGuess = guess.toLowerCase().trim();
+        const isAuth          = req.user !== null && req.user !== undefined;
+        const MAX_GUESSES     = isAuth ? 6 : 5;
 
-        // ── Get today's word ──────────────────────────────────────────
-        const word = await getTodaysWord();
-        if (!word) {
-            return res.status(503).json({ message: 'No word available for today.' });
+        let word;
+
+        if (isAuth) {
+            word = await getWordForUser(req.user.id);
+        } else {
+            const guestToken = getGuestToken(req, res);
+            word             = await getWordForGuest(guestToken);
         }
 
-        const isAuth      = req.user !== null && req.user !== undefined;
-        const MAX_GUESSES = isAuth ? 6 : 5;
-        const answer      = word.word.toLowerCase();
+        if (!word) return res.status(503).json({ message: 'No word available for today.' });
 
-        // ── Evaluate guess ────────────────────────────────────────────
+        const answer = word.word.toLowerCase();
         const result = evaluateGuess(normalizedGuess, answer);
         const won    = result.every(r => r === 'correct');
 
         // ── Guest flow ────────────────────────────────────────────────
         if (!isAuth) {
             return res.status(200).json({
-                guess:            normalizedGuess,
+                guess,
                 result,
                 won,
-                remainingGuesses: won ? 0 : 0,   
+                remainingGuesses: 0,
                 isAuth:           false,
-                ...(won || true ? {} : {}),        
+                ...(won && { word: answer }),
             });
         }
 
         // ── Auth flow ─────────────────────────────────────────────────
         let game = await Game.findOne({
-            where: {
-                user_id: req.user.id,
-                word_id: word.id,
-            },
+            where: { user_id: req.user.id, word_id: word.id },
         });
 
-        // ── Check already played ──────────────────────────────────────
         if (game) {
             if (game.won) {
                 return res.status(400).json({ message: 'You already won today\'s game!' });
             }
             if (game.attempts >= MAX_GUESSES) {
-                return res.status(400).json({
-                    message: 'You have used all your guesses for today.',
-                    word:    answer,
-                });
+                return res.status(400).json({ message: 'You have used all your guesses for today.', word: answer });
             }
         }
 
-        // ── Save or update game ───────────────────────────────────────
-        const updatedGuesses  = game ? [...game.guesses, { guess: normalizedGuess, result }] : [{ guess: normalizedGuess, result }];
+        const updatedGuesses  = game
+            ? [...game.guesses, { guess: normalizedGuess, result }]
+            : [{ guess: normalizedGuess, result }];
         const updatedAttempts = game ? game.attempts + 1 : 1;
         const isLastGuess     = updatedAttempts >= MAX_GUESSES;
         const gameOver        = won || isLastGuess;
@@ -225,21 +226,16 @@ const submitGuess = async (req, res) => {
             });
         }
 
-        // ── Update leaderboard if game over ───────────────────────────
-        if (gameOver) {
-            await updateLeaderboard(req.user.id, won, updatedAttempts);
-        }
-
-        const remainingGuesses = Math.max(MAX_GUESSES - updatedAttempts, 0);
+        if (gameOver) await updateLeaderboard(req.user.id, won, updatedAttempts);
 
         return res.status(200).json({
             guess:            normalizedGuess,
             result,
             won,
             attempts:         updatedAttempts,
-            remainingGuesses,
+            remainingGuesses: Math.max(MAX_GUESSES - updatedAttempts, 0),
             gameOver,
-            ...(gameOver && { word: answer }),   
+            ...(gameOver && { word: answer }),
         });
 
     } catch (err) {
@@ -251,25 +247,20 @@ const submitGuess = async (req, res) => {
 // ─── Check Already Played ─────────────────────────────────────────────────────
 const checkAlreadyPlayed = async (req, res) => {
     try {
-        if (!req.user) {
+        const isAuth = req.user !== null && req.user !== undefined;
+
+        if (!isAuth) {
             return res.status(200).json({ alreadyPlayed: false, isAuth: false });
         }
 
-        const word = await getTodaysWord();
-        if (!word) {
-            return res.status(503).json({ message: 'No word available for today.' });
-        }
+        const word = await getWordForUser(req.user.id);
+        if (!word) return res.status(503).json({ message: 'No word available for today.' });
 
         const game = await Game.findOne({
-            where: {
-                user_id: req.user.id,
-                word_id: word.id,
-            },
+            where: { user_id: req.user.id, word_id: word.id },
         });
 
-        if (!game) {
-            return res.status(200).json({ alreadyPlayed: false, isAuth: true });
-        }
+        if (!game) return res.status(200).json({ alreadyPlayed: false, isAuth: true });
 
         const MAX_GUESSES      = 6;
         const alreadyPlayed    = game.won || game.attempts >= MAX_GUESSES;
@@ -282,7 +273,7 @@ const checkAlreadyPlayed = async (req, res) => {
             attempts:         game.attempts,
             remainingGuesses,
             guesses:          game.guesses,
-            ...(alreadyPlayed && { word: word.word }),  
+            ...(alreadyPlayed && { word: word.word }),
         });
 
     } catch (err) {
