@@ -9,6 +9,20 @@ const generateAccessToken = (id) =>
 const generateRefreshToken = (id) =>
   jwt.sign({ id }, process.env.JWT_REFRESH_SECRET, { expiresIn: "365d" });
 
+// ─── Cookie options helper ────────────────────────────────────────────────────
+const cookieOptions = (maxAge) => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+  maxAge,
+});
+
+const clearCookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+});
+
 // ─── Register ─────────────────────────────────────────────────────────────────
 const register = async (req, res) => {
   try {
@@ -74,9 +88,7 @@ const login = async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password)
-      return res
-        .status(400)
-        .json({ message: "Email and password are required." });
+      return res.status(400).json({ message: "Email and password are required." });
 
     const user = await User.findOne({ where: { email } });
     if (!user)
@@ -87,39 +99,26 @@ const login = async (req, res) => {
       return res.status(401).json({ message: "Invalid email or password." });
 
     if (!user.is_verified)
-      return res
-        .status(403)
-        .json({
-          message:
-            "Your email is not verified. Please check your inbox and verify your email before logging in.",
-        });
+      return res.status(403).json({
+        message:
+          "Your email is not verified. Please check your inbox and verify your email before logging in.",
+      });
 
-    const accessToken = generateAccessToken(user.id);
+    const accessToken  = generateAccessToken(user.id);
     const refreshToken = generateRefreshToken(user.id);
 
     await user.update({ refresh_token: refreshToken });
 
-    res.cookie("token", accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 15 * 60 * 1000,
-    });
-
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 365 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie("token",        accessToken,  cookieOptions(15 * 60 * 1000));
+    res.cookie("refreshToken", refreshToken, cookieOptions(365 * 24 * 60 * 60 * 1000));
 
     return res.status(200).json({
       message: "Login successful.",
       accessToken,
       user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
+        id:          user.id,
+        username:    user.username,
+        email:       user.email,
         is_verified: user.is_verified,
       },
     });
@@ -135,53 +134,32 @@ const refreshToken = async (req, res) => {
     const token = req.cookies?.refreshToken;
 
     if (!token)
-      return res
-        .status(401)
-        .json({ message: "Refresh token not found. Please log in." });
+      return res.status(401).json({ message: "Refresh token not found. Please log in." });
 
-    // ── Verify refresh token ──────────────────────────────────────────
     let decoded;
     try {
       decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
     } catch (err) {
-      return res
-        .status(403)
-        .json({
-          message: "Invalid or expired refresh token. Please log in again.",
-        });
+      return res.status(403).json({
+        message: "Invalid or expired refresh token. Please log in again.",
+      });
     }
 
-    // ── Find user and check token matches DB ──────────────────────────
     const user = await User.findByPk(decoded.id);
 
     if (!user || user.refresh_token !== token)
-      return res
-        .status(403)
-        .json({ message: "Refresh token mismatch. Please log in again." });
+      return res.status(403).json({ message: "Refresh token mismatch. Please log in again." });
 
-    // ── Issue new access token ────────────────────────────────────────
-    const newAccessToken = generateAccessToken(user.id);
+    const newAccessToken  = generateAccessToken(user.id);
     const newRefreshToken = generateRefreshToken(user.id);
 
-    // ── Rotate refresh token in DB ────────────────────────────────────
     await user.update({ refresh_token: newRefreshToken });
 
-    res.cookie("token", newAccessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 15 * 60 * 1000,
-    });
-
-    res.cookie("refreshToken", newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie("token",        newAccessToken,  cookieOptions(15 * 60 * 1000));
+    res.cookie("refreshToken", newRefreshToken, cookieOptions(7 * 24 * 60 * 60 * 1000));
 
     return res.status(200).json({
-      message: "Token refreshed successfully.",
+      message:     "Token refreshed successfully.",
       accessToken: newAccessToken,
     });
   } catch (err) {
@@ -193,34 +171,24 @@ const refreshToken = async (req, res) => {
 // ─── Logout ───────────────────────────────────────────────────────────────────
 const logout = async (req, res) => {
   try {
-    const authHeader = req.headers["authorization"];
+    const authHeader  = req.headers["authorization"];
     const headerToken = authHeader && authHeader.split(" ")[1];
 
     if (!headerToken && !req.cookies?.token)
       return res.status(401).json({ message: "No token provided." });
 
-    // ── Clear refresh token from DB ───────────────────────────────────
     const token = req.cookies?.refreshToken;
     if (token) {
       try {
         const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-        const user = await User.findByPk(decoded.id);
+        const user    = await User.findByPk(decoded.id);
         if (user) await user.update({ refresh_token: null });
       } catch (_) {
-        // token invalid — still clear cookies
       }
     }
 
-    res.clearCookie("token", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-    });
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-    });
+    res.clearCookie("token",        clearCookieOptions());
+    res.clearCookie("refreshToken", clearCookieOptions());
 
     return res.status(200).json({ message: "Logged out successfully." });
   } catch (err) {
@@ -229,7 +197,6 @@ const logout = async (req, res) => {
   }
 };
 
-// ─── Get Me ───────────────────────────────────────────────────────────────────
 const getMe = async (req, res) => {
   try {
     const user = await User.findByPk(req.user.id, {
