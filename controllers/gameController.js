@@ -1,8 +1,9 @@
-const { Op }                              = require('sequelize');
+const { Op } = require('sequelize');
 const { getWordForUser, getWordForGuest } = require('../utils/wordSelector');
-const Game                                = require('../models/Game');
-const Leaderboard                         = require('../models/Leaderboard');
-const { v4: uuidv4 }                      = require('uuid');
+const Game = require('../models/Game');
+const Leaderboard = require('../models/Leaderboard');
+const { v4: uuidv4 } = require('uuid');
+const Word = require('../models/Word');
 
 // ─── Helper: get or create guest session token ────────────────────────────────
 const getGuestToken = (req, res) => {
@@ -154,13 +155,18 @@ const submitGuess = async (req, res) => {
     try {
         const { guess } = req.body;
 
-        if (!guess)              return res.status(400).json({ message: 'Guess is required.' });
+        if (!guess) return res.status(400).json({ message: 'Guess is required.' });
         if (guess.length !== 5)  return res.status(400).json({ message: 'Guess must be exactly 5 letters.' });
         if (!/^[a-zA-Z]+$/.test(guess)) return res.status(400).json({ message: 'Guess must contain only letters.' });
 
         const normalizedGuess = guess.toLowerCase().trim();
         const isAuth          = req.user !== null && req.user !== undefined;
         const MAX_GUESSES     = isAuth ? 6 : 5;
+
+        const wordExists = await Word.findOne({ where: { word: normalizedGuess } });
+        if (!wordExists) {
+            return res.status(400).json({ message: 'Not in a list.' });
+        }
 
         let word;
 
@@ -177,7 +183,6 @@ const submitGuess = async (req, res) => {
         const result = evaluateGuess(normalizedGuess, answer);
         const won    = result.every(r => r === 'correct');
 
-        // ── Guest flow ────────────────────────────────────────────────
         if (!isAuth) {
             return res.status(200).json({
                 guess,
@@ -189,7 +194,6 @@ const submitGuess = async (req, res) => {
             });
         }
 
-        // ── Auth flow ─────────────────────────────────────────────────
         let game = await Game.findOne({
             where: { user_id: req.user.id, word_id: word.id },
         });
