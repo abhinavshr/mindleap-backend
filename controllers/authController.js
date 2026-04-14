@@ -2,6 +2,8 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { sendVerificationEmail } = require("../utils/sendEmail");
+const Leaderboard = require("../models/Leaderboard");
+const Game = require("../models/Game");
 
 // ─── Helper: generate tokens ──────────────────────────────────────────────────
 const generateAccessToken = (id) =>
@@ -198,18 +200,72 @@ const logout = async (req, res) => {
 };
 
 const getMe = async (req, res) => {
-  try {
-    const user = await User.findByPk(req.user.id, {
-      attributes: ["id", "username", "email", "is_verified", "created_at"],
-    });
+    try {
+        const user = await User.findByPk(req.user.id, {
+            attributes: ['id', 'username', 'email', 'is_verified', 'created_at'],
+        });
 
-    if (!user) return res.status(404).json({ message: "User not found." });
+        if (!user) return res.status(404).json({ message: 'User not found.' });
 
-    return res.status(200).json({ user });
-  } catch (err) {
-    console.error("GetMe error:", err.message);
-    return res.status(500).json({ message: "Server error. Please try again." });
-  }
+        // ── Get leaderboard stats ─────────────────────────────────────
+        const stats = await Leaderboard.findOne({
+            where: { user_id: req.user.id },
+        });
+
+        // ── Get guess distribution ────────────────────────────────────
+        // Count how many games were won on attempt 1, 2, 3, 4, 5, 6
+        const games = await Game.findAll({
+            where: {
+                user_id: req.user.id,
+                won:     1,
+            },
+            attributes: ['attempts'],
+        });
+
+        // Build distribution { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }
+        const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+        games.forEach((game) => {
+            const attempt = game.attempts;
+            if (attempt >= 1 && attempt <= 6) {
+                distribution[attempt]++;
+            }
+        });
+
+        // ── Calculate win rate ────────────────────────────────────────
+        const totalGames = stats?.total_games  || 0;
+        const totalWins  = stats?.total_wins   || 0;
+        const winRate    = totalGames > 0
+            ? parseFloat((totalWins / totalGames * 100).toFixed(1))
+            : 0;
+
+        return res.status(200).json({
+            // ── Profile ───────────────────────────────────────────────
+            profile: {
+                id:          user.id,
+                username:    user.username,
+                email:       user.email,
+                is_verified: user.is_verified,
+                joined_at:   user.created_at,
+            },
+            // ── Stats ─────────────────────────────────────────────────
+            stats: {
+                total_games:    totalGames,
+                total_wins:     totalWins,
+                total_losses:   totalGames - totalWins,
+                win_rate:       winRate,
+                current_streak: stats?.current_streak || 0,
+                max_streak:     stats?.max_streak     || 0,
+                avg_attempts:   stats?.avg_attempts   || 0,
+                last_played:    stats?.last_played    || null,
+            },
+            // ── Guess distribution ────────────────────────────────────
+            guess_distribution: distribution,
+        });
+
+    } catch (err) {
+        console.error('GetMe error:', err.message);
+        return res.status(500).json({ message: 'Server error. Please try again.' });
+    }
 };
 
 module.exports = { register, verifyEmail, login, refreshToken, logout, getMe };
