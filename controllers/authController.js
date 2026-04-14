@@ -5,7 +5,7 @@ const { sendVerificationEmail } = require("../utils/sendEmail");
 
 // ─── Helper: generate tokens ──────────────────────────────────────────────────
 const generateAccessToken = (id) =>
-  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "15m" });
+  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "30d" });
 const generateRefreshToken = (id) =>
   jwt.sign({ id }, process.env.JWT_REFRESH_SECRET, { expiresIn: "365d" });
 
@@ -109,7 +109,7 @@ const login = async (req, res) => {
 
     await user.update({ refresh_token: refreshToken });
 
-    res.cookie("token",        accessToken,  cookieOptions(15 * 60 * 1000));
+    res.cookie("token",        accessToken,  cookieOptions(30 * 24 * 60 * 60 * 1000));
     res.cookie("refreshToken", refreshToken, cookieOptions(365 * 24 * 60 * 60 * 1000));
 
     return res.status(200).json({
@@ -155,8 +155,8 @@ const refreshToken = async (req, res) => {
 
     await user.update({ refresh_token: newRefreshToken });
 
-    res.cookie("token",        newAccessToken,  cookieOptions(15 * 60 * 1000));
-    res.cookie("refreshToken", newRefreshToken, cookieOptions(7 * 24 * 60 * 60 * 1000));
+    res.cookie("token",        newAccessToken,  cookieOptions(30 * 24 * 60 * 60 * 1000));
+    res.cookie("refreshToken", newRefreshToken, cookieOptions(365 * 24 * 60 * 60 * 1000));
 
     return res.status(200).json({
       message:     "Token refreshed successfully.",
