@@ -2,9 +2,8 @@ const { DataTypes } = require('sequelize');
 const sequelize     = require('../config/db');
 const User          = require('./User');
 const Word          = require('./Word');
-const SpeedSession  = require('./SpeedSession');
 
-const SpeedGame = sequelize.define('SpeedGame', {
+const SpeedSession = sequelize.define('SpeedSession', {
     id: {
         type:          DataTypes.INTEGER,
         autoIncrement: true,
@@ -20,54 +19,26 @@ const SpeedGame = sequelize.define('SpeedGame', {
         allowNull:  false,
         references: { model: Word, key: 'id' },
     },
-    session_id: {
-        type:       DataTypes.INTEGER,
-        allowNull:  false,
-        references: { model: SpeedSession, key: 'id' },
-    },
-    guesses: {
-        type:         DataTypes.JSON,
-        allowNull:    false,
-        defaultValue: [],
-    },
-    won: {
-        type:         DataTypes.BOOLEAN,
-        allowNull:    false,
-        defaultValue: false,
-    },
-    attempts: {
-        type:         DataTypes.INTEGER,
-        allowNull:    false,
-        defaultValue: 0,
-    },
-    time_taken: {
-        type:         DataTypes.INTEGER,
-        allowNull:    false,
-        defaultValue: 0,
-        comment:      'Time taken in seconds',
-    },
-    xp_earned: {
-        type:         DataTypes.INTEGER,
-        allowNull:    false,
-        defaultValue: 0,
-    },
-    played_at: {
+    started_at: {
         type:         DataTypes.DATE,
         allowNull:    false,
         defaultValue: DataTypes.NOW,
     },
+    status: {
+        type:         DataTypes.ENUM('active', 'won', 'lost', 'expired'),
+        allowNull:    false,
+        defaultValue: 'active',
+    },
 }, {
-    tableName:  'speed_games',
+    tableName:  'speed_sessions',
     timestamps: false,
 });
 
 // ─── Associations ─────────────────────────────────────────────────────────────
-SpeedGame.belongsTo(User,         { foreignKey: 'user_id',    onDelete: 'CASCADE' });
-SpeedGame.belongsTo(Word,         { foreignKey: 'word_id',    onDelete: 'CASCADE' });
-SpeedGame.belongsTo(SpeedSession, { foreignKey: 'session_id', onDelete: 'CASCADE' });
+SpeedSession.belongsTo(User, { foreignKey: 'user_id', onDelete: 'CASCADE' });
+SpeedSession.belongsTo(Word, { foreignKey: 'word_id', onDelete: 'CASCADE' });
 
-User.hasMany(SpeedGame,         { foreignKey: 'user_id' });
-Word.hasMany(SpeedGame,         { foreignKey: 'word_id' });
-SpeedSession.hasMany(SpeedGame, { foreignKey: 'session_id' });
+User.hasMany(SpeedSession, { foreignKey: 'user_id' });
+Word.hasMany(SpeedSession, { foreignKey: 'word_id' });
 
-module.exports = SpeedGame;
+module.exports = SpeedSession;
