@@ -1,13 +1,16 @@
 const { Op }             = require('sequelize');
 const { pickRandomWord } = require('../utils/wordSelector');
 const { calculateXP }    = require('../utils/xpCalculator');
-const SpeedSession       = require('../models/SpeedSession');
-const SpeedGame          = require('../models/SpeedGame');
-const SpeedLeaderboard   = require('../models/SpeedLeaderboard');
-const Word               = require('../models/Word');
-const User               = require('../models/User');
 
-const SPEED_TIME_LIMIT = 60; // seconds
+const {
+    User,
+    Word,
+    SpeedSession,
+    SpeedGame,
+    SpeedLeaderboard,
+} = require('../models');
+
+const SPEED_TIME_LIMIT = 60;
 const MAX_GUESSES      = 6;
 
 // ─── Helper: evaluate guess ───────────────────────────────────────────────────
@@ -58,7 +61,6 @@ const updateSpeedLeaderboard = async (userId, won, timeTaken, attempts, xpEarned
     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
     if (!board) {
-        // ── Create new entry ──────────────────────────────────────────
         return await SpeedLeaderboard.create({
             user_id:           userId,
             total_speed_wins:  won ? 1 : 0,
@@ -107,15 +109,10 @@ const updateSpeedLeaderboard = async (userId, won, timeTaken, attempts, xpEarned
             ? new Date(board.last_played).toISOString().split('T')[0]
             : null;
 
-        if (lastPlayed === yesterday) {
-            newStreak = board.current_streak + 1;
-        } else {
-            newStreak = 1;
-        }
-
+        newStreak    = lastPlayed === yesterday ? board.current_streak + 1 : 1;
         newMaxStreak = Math.max(board.max_streak, newStreak);
+
     } else {
-        // Lost — reset streak
         newStreak = 0;
     }
 
@@ -142,24 +139,19 @@ const startSpeedSession = async (req, res) => {
 
         // ── Check for existing active session ─────────────────────────
         const existingSession = await SpeedSession.findOne({
-            where: {
-                user_id: userId,
-                status:  'active',
-            },
+            where:   { user_id: userId, status: 'active' },
             include: [{ model: Word }],
         });
 
         if (existingSession) {
-            const now        = new Date();
-            const started    = new Date(existingSession.started_at);
-            const elapsed    = Math.floor((now - started) / 1000);  // in seconds
-            const timeLeft   = SPEED_TIME_LIMIT - elapsed;
+            const now     = new Date();
+            const started = new Date(existingSession.started_at);
+            const elapsed = Math.floor((now - started) / 1000);
+            const timeLeft = SPEED_TIME_LIMIT - elapsed;
 
             if (elapsed > SPEED_TIME_LIMIT) {
-                // ── Session expired — mark and create new ─────────────
                 await existingSession.update({ status: 'expired' });
             } else {
-                // ── Return existing active session ────────────────────
                 return res.status(200).json({
                     sessionId:  existingSession.id,
                     timeLeft,
@@ -204,34 +196,26 @@ const submitSpeedGuess = async (req, res) => {
         const { sessionId, guess, attempts } = req.body;
 
         // ── Validate input ────────────────────────────────────────────
-        if (!sessionId || !guess || !attempts) {
+        if (!sessionId || !guess || !attempts)
             return res.status(400).json({ message: 'sessionId, guess and attempts are required.' });
-        }
 
-        if (guess.length !== 5) {
+        if (guess.length !== 5)
             return res.status(400).json({ message: 'Guess must be exactly 5 letters.' });
-        }
 
-        if (!/^[a-zA-Z]+$/.test(guess)) {
+        if (!/^[a-zA-Z]+$/.test(guess))
             return res.status(400).json({ message: 'Guess must contain only letters.' });
-        }
 
         // ── Find session ──────────────────────────────────────────────
         const session = await SpeedSession.findOne({
-            where: {
-                id:      sessionId,
-                user_id: req.user.id,
-            },
+            where:   { id: sessionId, user_id: req.user.id },
             include: [{ model: Word }],
         });
 
-        if (!session) {
+        if (!session)
             return res.status(404).json({ message: 'Session not found.' });
-        }
 
-        if (session.status !== 'active') {
+        if (session.status !== 'active')
             return res.status(400).json({ message: 'Session already ended.', status: session.status });
-        }
 
         // ── Check if time is up ───────────────────────────────────────
         const now     = new Date();
@@ -307,12 +291,10 @@ const submitSpeedGuess = async (req, res) => {
         }
 
         // ── Still has guesses ─────────────────────────────────────────
-        const timeLeft = SPEED_TIME_LIMIT - elapsed;
-
         return res.status(200).json({
             result,
             won:      false,
-            timeLeft,
+            timeLeft: SPEED_TIME_LIMIT - elapsed,
             attempts,
         });
 
@@ -338,26 +320,23 @@ const getSpeedLeaderboard = async (req, res) => {
         });
 
         const ranked = leaderboard.map((entry, index) => ({
-            rank:               index + 1,
-            username:           entry.User.username,
-            total_speed_wins:   entry.total_speed_wins,
-            total_speed_games:  entry.total_speed_games,
-            best_time:          entry.best_time,
-            avg_time:           entry.avg_time,
-            avg_attempts:       entry.avg_attempts,
-            total_xp:           entry.total_xp,
-            current_streak:     entry.current_streak,
-            max_streak:         entry.max_streak,
-            last_played:        entry.last_played,
-            win_rate:           entry.total_speed_games > 0
+            rank:              index + 1,
+            username:          entry.User.username,
+            total_speed_wins:  entry.total_speed_wins,
+            total_speed_games: entry.total_speed_games,
+            best_time:         entry.best_time,
+            avg_time:          entry.avg_time,
+            avg_attempts:      entry.avg_attempts,
+            total_xp:          entry.total_xp,
+            current_streak:    entry.current_streak,
+            max_streak:        entry.max_streak,
+            last_played:       entry.last_played,
+            win_rate:          entry.total_speed_games > 0
                 ? parseFloat((entry.total_speed_wins / entry.total_speed_games * 100).toFixed(1))
                 : 0,
         }));
 
-        return res.status(200).json({
-            success: true,
-            data:    ranked,
-        });
+        return res.status(200).json({ success: true, data: ranked });
 
     } catch (err) {
         console.error('GetSpeedLeaderboard error:', err.message);

@@ -3,39 +3,31 @@ const cors         = require('cors');
 const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
-const sequelize    = require('./config/db');
-
-// ── Register all model associations ──────────────────────────────────────────
+const sequelize = require('./config/db');
 require('./models');
 
-// ── Routes ────────────────────────────────────────────────────────────────────
+const { generalLimiter, authLimiter } = require('./middleware/rateLimiter');
+
 const authRoutes        = require('./routes/authRoutes');
 const gameRoutes        = require('./routes/gameRoutes');
 const leaderboardRoutes = require('./routes/leaderboardRoutes');
 const speedRoutes       = require('./routes/speedRoutes');
 
-const { generalLimiter, authLimiter, guessLimiter } = require('./middleware/rateLimiter');
-
 const app = express();
 
-// ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors({
     origin:      process.env.CLIENT_URL,
     credentials: true,
 }));
 app.use(express.json());
 app.use(cookieParser());
-
-// ── Rate limiting ─────────────────────────────────────────────────────────────
 app.use(generalLimiter);
 
-// ── Routes ────────────────────────────────────────────────────────────────────
-app.use('/api/auth',        authLimiter,  authRoutes);
-app.use('/api/game',                      gameRoutes);
-app.use('/api/leaderboard',               leaderboardRoutes);
-app.use('/api/speed',                     speedRoutes);
+app.use('/api/auth',        authLimiter, authRoutes);
+app.use('/api/game',                     gameRoutes);
+app.use('/api/leaderboard',              leaderboardRoutes);
+app.use('/api/speed',                    speedRoutes);
 
-// ── Connect to DB then start server ──────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 
 sequelize.authenticate()

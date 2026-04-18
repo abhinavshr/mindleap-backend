@@ -1,47 +1,36 @@
-const express      = require('express');
-const cors         = require('cors');
-const cookieParser = require('cookie-parser');
-require('dotenv').config();
+const rateLimit = require('express-rate-limit');
 
-const sequelize    = require('./config/db');
+const generalLimiter = rateLimit({
+    windowMs:        15 * 60 * 1000,
+    max:             100,
+    standardHeaders: true,
+    legacyHeaders:   false,
+    message: {
+        status:  429,
+        message: 'Too many requests. Please try again after 15 minutes.',
+    },
+});
 
-const { generalLimiter, authLimiter, guessLimiter } = require('./middleware/rateLimiter');
+const authLimiter = rateLimit({
+    windowMs:        15 * 60 * 1000,
+    max:             10,
+    standardHeaders: true,
+    legacyHeaders:   false,
+    message: {
+        status:  429,
+        message: 'Too many login attempts. Please try again after 15 minutes.',
+    },
+});
 
-// Routes
-const authRoutes        = require('./routes/authRoutes');
-const gameRoutes        = require('./routes/gameRoutes');
-const leaderboardRoutes = require('./routes/leaderboardRoutes');
+const guessLimiter = rateLimit({
+    windowMs:        60 * 1000,
+    max:             20,
+    standardHeaders: true,
+    legacyHeaders:   false,
+    message: {
+        status:  429,
+        message: 'Too many guesses. Please slow down.',
+    },
+});
 
-const app = express();
-
-// ── Middleware ────────────────────────────────────────────────────────────────
-app.use(cors({
-    origin:      process.env.CLIENT_URL,
-    credentials: true,
-}));
-app.use(express.json());
-app.use(cookieParser());
-
-// ── Apply general limiter to all routes ──────────────────────────────────────
-app.use(generalLimiter);
-
-// ── Routes with specific limiters ────────────────────────────────────────────
-app.use('/api/auth',              authLimiter,  authRoutes);
-app.use('/api/game',                            gameRoutes);
-app.use('/api/game/guess',        guessLimiter, gameRoutes);
-app.use('/api/leaderboard',                     leaderboardRoutes);
-
-// ── Connect to DB then start server ──────────────────────────────────────────
-const PORT = process.env.PORT || 5000;
-
-sequelize.authenticate()
-    .then(() => {
-        console.log('Database connected successfully');
-        app.listen(PORT, () => {
-            console.log(`Server running on port ${PORT}`);
-        });
-    })
-    .catch((err) => {
-        console.error('Database connection failed:', err.message);
-        process.exit(1);
-    });
+module.exports = { generalLimiter, authLimiter, guessLimiter };
