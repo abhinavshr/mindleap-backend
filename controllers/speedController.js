@@ -13,7 +13,6 @@ const {
 const SPEED_TIME_LIMIT = 60;
 const MAX_GUESSES      = 6;
 
-// ─── Helper: evaluate guess ───────────────────────────────────────────────────
 const evaluateGuess = (guess, answer) => {
     const result    = Array(5).fill('absent');
     const answerArr = answer.split('');
@@ -39,7 +38,6 @@ const evaluateGuess = (guess, answer) => {
     return result;
 };
 
-// ─── Function 3 — saveSpeedGame (internal helper) ────────────────────────────
 const saveSpeedGame = async (userId, wordId, sessionId, guesses, won, attempts, timeTaken, xpEarned) => {
     return await SpeedGame.create({
         user_id:    userId,
@@ -53,7 +51,6 @@ const saveSpeedGame = async (userId, wordId, sessionId, guesses, won, attempts, 
     });
 };
 
-// ─── Function 4 — updateSpeedLeaderboard (internal helper) ───────────────────
 const updateSpeedLeaderboard = async (userId, won, timeTaken, attempts, xpEarned) => {
     let board = await SpeedLeaderboard.findOne({ where: { user_id: userId } });
 
@@ -75,7 +72,6 @@ const updateSpeedLeaderboard = async (userId, won, timeTaken, attempts, xpEarned
         });
     }
 
-    // ── Always update ─────────────────────────────────────────────────
     const newTotalGames = board.total_speed_games + 1;
     const newTotalXP    = board.total_xp + xpEarned;
 
@@ -132,7 +128,6 @@ const updateSpeedLeaderboard = async (userId, won, timeTaken, attempts, xpEarned
     return board;
 };
 
-// ─── Function 1 — startSpeedSession ──────────────────────────────────────────
 const startSpeedSession = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -190,7 +185,6 @@ const startSpeedSession = async (req, res) => {
     }
 };
 
-// ─── Function 2 — submitSpeedGuess ───────────────────────────────────────────
 const submitSpeedGuess = async (req, res) => {
     try {
         const { sessionId, guess, attempts } = req.body;
@@ -304,7 +298,6 @@ const submitSpeedGuess = async (req, res) => {
     }
 };
 
-// ─── Function 5 — getSpeedLeaderboard ────────────────────────────────────────
 const getSpeedLeaderboard = async (req, res) => {
     try {
         const leaderboard = await SpeedLeaderboard.findAll({
@@ -344,50 +337,122 @@ const getSpeedLeaderboard = async (req, res) => {
     }
 };
 
-// ─── Function 6 — getMySpeedStats ────────────────────────────────────────────
-const getMySpeedStats = async (req, res) => {
+const submitSpeedGuess = async (req, res) => {
     try {
-        const userId = req.user.id;
+        const { sessionId, guess, attempts } = req.body;
 
-        // ── Get personal stats ────────────────────────────────────────
-        const stats = await SpeedLeaderboard.findOne({
-            where: { user_id: userId },
+        // ── Validate input ────────────────────────────────────────────
+        if (!sessionId || !guess || !attempts)
+            return res.status(400).json({ message: 'sessionId, guess and attempts are required.' });
+
+        if (guess.length !== 5)
+            return res.status(400).json({ message: 'Guess must be exactly 5 letters.' });
+
+        if (!/^[a-zA-Z]+$/.test(guess))
+            return res.status(400).json({ message: 'Guess must contain only letters.' });
+
+        // ── Check if guess is a valid word in the words table ─────────
+        const normalizedGuess = guess.toLowerCase().trim();
+
+        const validWord = await Word.findOne({ where: { word: normalizedGuess } });
+        if (!validWord) {
+            return res.status(400).json({ message: 'Not a valid word. Please try again.' });
+        }
+
+        // ── Find session ──────────────────────────────────────────────
+        const session = await SpeedSession.findOne({
+            where:   { id: sessionId, user_id: req.user.id },
+            include: [{ model: Word }],
         });
 
-        // ── Get last 10 games ─────────────────────────────────────────
-        const recentGames = await SpeedGame.findAll({
-            where:   { user_id: userId },
-            limit:   10,
-            order:   [['played_at', 'DESC']],
-            include: [{ model: Word, attributes: ['word'] }],
-        });
+        if (!session)
+            return res.status(404).json({ message: 'Session not found.' });
 
-        // ── Calculate rank ────────────────────────────────────────────
-        const allEntries = await SpeedLeaderboard.findAll({
-            order: [
-                ['total_speed_wins', 'DESC'],
-                ['best_time',        'ASC'],
-            ],
-        });
+        if (session.status !== 'active')
+            return res.status(400).json({ message: 'Session already ended.', status: session.status });
 
-        const rankIndex = allEntries.findIndex(e => e.user_id === userId);
-        const myRank    = rankIndex === -1 ? null : rankIndex + 1;
+        // ── Check if time is up ───────────────────────────────────────
+        const now     = new Date();
+        const started = new Date(session.started_at);
+        const elapsed = Math.floor((now - started) / 1000);
 
+        if (elapsed > SPEED_TIME_LIMIT) {
+            await session.update({ status: 'expired' });
+            return res.status(200).json({
+                timeUp: true,
+                secret: session.Word.word,
+            });
+        }
+
+        // ── Evaluate guess ────────────────────────────────────────────
+        const secret    = session.Word.word.toLowerCase();
+        const result    = evaluateGuess(normalizedGuess, secret);
+        const won       = normalizedGuess === secret;
+        const timeTaken = elapsed;
+
+        // ── Won ───────────────────────────────────────────────────────
+        if (won) {
+            const xpEarned = calculateXP(timeTaken, attempts);
+
+            await session.update({ status: 'won' });
+
+            await saveSpeedGame(
+                req.user.id,
+                session.word_id,
+                session.id,
+                [{ guess: normalizedGuess, result }],
+                true,
+                attempts,
+                timeTaken,
+                xpEarned
+            );
+
+            await updateSpeedLeaderboard(req.user.id, true, timeTaken, attempts, xpEarned);
+
+            return res.status(200).json({
+                result,
+                won:       true,
+                timeTaken,
+                xpEarned,
+                secret,
+            });
+        }
+
+        // ── Lost — used all guesses ───────────────────────────────────
+        if (attempts >= MAX_GUESSES) {
+            await session.update({ status: 'lost' });
+
+            await saveSpeedGame(
+                req.user.id,
+                session.word_id,
+                session.id,
+                [{ guess: normalizedGuess, result }],
+                false,
+                attempts,
+                timeTaken,
+                0
+            );
+
+            await updateSpeedLeaderboard(req.user.id, false, timeTaken, attempts, 0);
+
+            return res.status(200).json({
+                result,
+                won:    false,
+                lost:   true,
+                secret,
+            });
+        }
+
+        // ── Still has guesses ─────────────────────────────────────────
         return res.status(200).json({
-            rank:        myRank,
-            stats:       stats || null,
-            recentGames: recentGames.map(g => ({
-                word:       g.Word.word,
-                won:        g.won,
-                attempts:   g.attempts,
-                time_taken: g.time_taken,
-                xp_earned:  g.xp_earned,
-                played_at:  g.played_at,
-            })),
+            result,
+            won:      false,
+            timeLeft: SPEED_TIME_LIMIT - elapsed,
+            attempts,
         });
 
     } catch (err) {
-        console.error('GetMySpeedStats error:', err.message);
+        console.error('SubmitSpeedGuess error:', err.message);
         return res.status(500).json({ message: 'Server error. Please try again.' });
     }
 };
