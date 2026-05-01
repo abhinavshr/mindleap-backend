@@ -12,6 +12,7 @@ const authRoutes        = require('./routes/authRoutes');
 const gameRoutes        = require('./routes/gameRoutes');
 const leaderboardRoutes = require('./routes/leaderboardRoutes');
 const speedRoutes       = require('./routes/speedRoutes');
+const levelRoutes       = require('./routes/levelRoutes');
 
 const app = express();
 
@@ -23,10 +24,11 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(generalLimiter);
 
-app.use('/api/auth',        authLimiter, authRoutes);
-app.use('/api/game',                     gameRoutes);
-app.use('/api/leaderboard',              leaderboardRoutes);
-app.use('/api/speed',                    speedRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/game', gameRoutes);
+app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/api/speed', speedRoutes);
+app.use('/api/level', levelRoutes);
 
 const PORT = process.env.PORT || 5000;
 
