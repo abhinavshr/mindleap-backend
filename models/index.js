@@ -6,6 +6,10 @@ const GuestSession     = require('./GuestSession');
 const SpeedSession     = require('./SpeedSession');
 const SpeedGame        = require('./SpeedGame');
 const SpeedLeaderboard = require('./SpeedLeaderboard');
+const Level      = require('./Level');
+const UserXpLog  = require('./UserXpLog');
+const UserBadge  = require('./UserBadge');
+const UserReward = require('./UserReward');
 
 // ─── Classic Game Associations ────────────────────────────────────────────────
 User.hasMany(Game,         { foreignKey: 'user_id' });
@@ -39,6 +43,17 @@ SpeedGame.belongsTo(SpeedSession, { foreignKey: 'session_id', onDelete: 'CASCADE
 User.hasOne(SpeedLeaderboard,        { foreignKey: 'user_id' });
 SpeedLeaderboard.belongsTo(User,     { foreignKey: 'user_id', onDelete: 'CASCADE' });
 
+// ── Level associations ────────────────────────────────────────────────────────
+User.hasMany(UserXpLog,  { foreignKey: 'user_id' });
+UserXpLog.belongsTo(User,{ foreignKey: 'user_id', onDelete: 'CASCADE' });
+
+User.hasMany(UserBadge,  { foreignKey: 'user_id' });
+UserBadge.belongsTo(User,{ foreignKey: 'user_id', onDelete: 'CASCADE' });
+
+User.hasMany(UserReward,  { foreignKey: 'user_id' });
+UserReward.belongsTo(User,{ foreignKey: 'user_id', onDelete: 'CASCADE' });
+
+
 // ─── Export all models ────────────────────────────────────────────────────────
 module.exports = {
     User,
@@ -49,4 +64,8 @@ module.exports = {
     SpeedSession,
     SpeedGame,
     SpeedLeaderboard,
+    Level,
+    UserXpLog,
+    UserBadge,
+    UserReward,
 };
