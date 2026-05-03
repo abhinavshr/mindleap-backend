@@ -1,6 +1,7 @@
 const { Op } = require("sequelize");
 const { pickRandomWord } = require("../utils/wordSelector");
 const { calculateXP, calculateStreakBonus, awardXP } = require("../utils/xpCalculator");
+const { checkAndAwardBadges } = require("../utils/badgeChecker");
 
 const {
   User,
@@ -315,6 +316,7 @@ const submitSpeedGuess = async (req, res) => {
 
     // ── Evaluate guess ────────────────────────────────────────────
     const secret = session.Word.word.toLowerCase();
+    console.log("[Speed] Submit guess word:", secret);
     const result = evaluateGuess(normalizedGuess, secret);
     const won = normalizedGuess === secret;
     const timeTaken = elapsed;
@@ -364,6 +366,21 @@ const submitSpeedGuess = async (req, res) => {
           );
         }
       }
+
+      const user = await User.findByPk(req.user.id, {
+        attributes: ["id", "current_level"],
+      });
+
+      await checkAndAwardBadges(req.user.id, {
+        won: true,
+        attempts,
+        timeTaken,
+        streak: board?.current_streak || 0,
+        totalGames: board?.total_speed_games || 0,
+        level: user?.current_level || 1,
+        isSpeedWin: true,
+        speedWins: board?.total_speed_wins || 0,
+      });
 
       return res.status(200).json({
         result,
