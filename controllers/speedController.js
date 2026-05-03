@@ -168,7 +168,6 @@ const startSpeedSession = async (req, res) => {
       if (elapsed > SPEED_TIME_LIMIT) {
         await existingSession.update({ status: "expired" });
       } else {
-        console.log("[Speed] Resumed session word:", existingSession.Word.word);
         return res.status(200).json({
           sessionId: existingSession.id,
           timeLeft,
@@ -196,7 +195,6 @@ const startSpeedSession = async (req, res) => {
       status: "active",
     });
 
-    console.log("[Speed] New session word:", word.word);
     return res.status(201).json({
       sessionId: session.id,
       timeLeft: SPEED_TIME_LIMIT,
@@ -316,7 +314,6 @@ const submitSpeedGuess = async (req, res) => {
 
     // ── Evaluate guess ────────────────────────────────────────────
     const secret = session.Word.word.toLowerCase();
-    console.log("[Speed] Submit guess word:", secret);
     const result = evaluateGuess(normalizedGuess, secret);
     const won = normalizedGuess === secret;
     const timeTaken = elapsed;

@@ -50,7 +50,6 @@ const getDailyInfo = async (req, res) => {
             });
         }
 
-        console.log('[Classic] Daily word:', word.word);
 
         // ── Check if auth user already has a game today ───────────────
         const existingGame = await Game.findOne({
@@ -187,7 +186,6 @@ const submitGuess = async (req, res) => {
         if (!word) return res.status(503).json({ message: 'No word available for today.' });
 
         const answer = word.word.toLowerCase();
-        console.log('[Classic] Submit guess word:', answer);
         const result = evaluateGuess(normalizedGuess, answer);
         const won    = result.every(r => r === 'correct');
 
