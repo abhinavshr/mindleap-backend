@@ -1,10 +1,12 @@
 const { Op } = require('sequelize');
 const { getWordForUser, getWordForGuest } = require('../utils/wordSelector');
 const { calculateClassicXP, calculateStreakBonus, awardXP } = require('../utils/xpCalculator');
+const { checkAndAwardBadges } = require('../utils/badgeChecker');
 const Game = require('../models/Game');
 const Leaderboard = require('../models/Leaderboard');
 const { v4: uuidv4 } = require('uuid');
 const Word = require('../models/Word');
+const User = require('../models/User');
 
 // ─── Helper: get or create guest session token ────────────────────────────────
 const getGuestToken = (req, res) => {
@@ -48,6 +50,8 @@ const getDailyInfo = async (req, res) => {
             });
         }
 
+        console.log('[Classic] Daily word:', word.word);
+
         // ── Check if auth user already has a game today ───────────────
         const existingGame = await Game.findOne({
             where: { user_id: req.user.id, word_id: word.id },
@@ -69,6 +73,7 @@ const getDailyInfo = async (req, res) => {
                 isAuth,
                 date:             new Date().toISOString().split('T')[0],
                 alreadyPlayed:    existingGame.won || usedGuesses >= MAX_GUESSES,
+                debugWord:        word.word,
             });
         }
 
@@ -81,6 +86,7 @@ const getDailyInfo = async (req, res) => {
             isAuth,
             date:             new Date().toISOString().split('T')[0],
             alreadyPlayed:    false,
+            debugWord:        word.word,
         });
 
     } catch (err) {
@@ -181,6 +187,7 @@ const submitGuess = async (req, res) => {
         if (!word) return res.status(503).json({ message: 'No word available for today.' });
 
         const answer = word.word.toLowerCase();
+        console.log('[Classic] Submit guess word:', answer);
         const result = evaluateGuess(normalizedGuess, answer);
         const won    = result.every(r => r === 'correct');
 
@@ -258,6 +265,23 @@ const submitGuess = async (req, res) => {
                     );
                 }
             }
+
+            const user = await User.findByPk(req.user.id, {
+                attributes: ['id', 'current_level'],
+            });
+
+            const totalWinsIn1 = await Game.count({
+                where: { user_id: req.user.id, won: 1, attempts: 1 },
+            });
+
+            await checkAndAwardBadges(req.user.id, {
+                won,
+                attempts: updatedAttempts,
+                streak: board?.current_streak || 0,
+                totalGames: board?.total_games || 0,
+                level: user?.current_level || 1,
+                totalWinsIn1,
+            });
         }
 
         return res.status(200).json({
