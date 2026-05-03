@@ -1,6 +1,6 @@
 const { Op } = require("sequelize");
 const { pickRandomWord } = require("../utils/wordSelector");
-const { calculateXP } = require("../utils/xpCalculator");
+const { calculateXP, calculateStreakBonus, awardXP } = require("../utils/xpCalculator");
 
 const {
   User,
@@ -167,12 +167,14 @@ const startSpeedSession = async (req, res) => {
       if (elapsed > SPEED_TIME_LIMIT) {
         await existingSession.update({ status: "expired" });
       } else {
+        console.log("[Speed] Resumed session word:", existingSession.Word.word);
         return res.status(200).json({
           sessionId: existingSession.id,
           timeLeft,
           wordLength: 5,
           maxGuesses: MAX_GUESSES,
           resumed: true,
+          debugWord: existingSession.Word.word,
         });
       }
     }
@@ -193,12 +195,14 @@ const startSpeedSession = async (req, res) => {
       status: "active",
     });
 
+    console.log("[Speed] New session word:", word.word);
     return res.status(201).json({
       sessionId: session.id,
       timeLeft: SPEED_TIME_LIMIT,
       wordLength: 5,
       maxGuesses: MAX_GUESSES,
       resumed: false,
+      debugWord: word.word,
     });
   } catch (err) {
     console.error("StartSpeedSession error:", err.message);
@@ -332,13 +336,34 @@ const submitSpeedGuess = async (req, res) => {
         xpEarned,
       );
 
-      await updateSpeedLeaderboard(
+      const board = await updateSpeedLeaderboard(
         req.user.id,
         true,
         timeTaken,
         attempts,
         xpEarned,
       );
+
+      if (xpEarned > 0) {
+        await awardXP(
+          req.user.id,
+          "speed_win",
+          xpEarned,
+          `Speed win in ${timeTaken}s (${attempts} attempts)`,
+        );
+      }
+
+      if (board) {
+        const streakBonus = calculateStreakBonus(board.current_streak || 0);
+        if (streakBonus > 0) {
+          await awardXP(
+            req.user.id,
+            "streak_bonus",
+            streakBonus,
+            `Speed streak bonus (${board.current_streak} wins)`,
+          );
+        }
+      }
 
       return res.status(200).json({
         result,
