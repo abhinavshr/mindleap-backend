@@ -1,5 +1,6 @@
 const { Op } = require('sequelize');
 const { getWordForUser, getWordForGuest } = require('../utils/wordSelector');
+const { calculateClassicXP, calculateStreakBonus, awardXP } = require('../utils/xpCalculator');
 const Game = require('../models/Game');
 const Leaderboard = require('../models/Leaderboard');
 const { v4: uuidv4 } = require('uuid');
@@ -230,7 +231,34 @@ const submitGuess = async (req, res) => {
             });
         }
 
-        if (gameOver) await updateLeaderboard(req.user.id, won, updatedAttempts);
+        let board = null;
+        if (gameOver) {
+            board = await updateLeaderboard(req.user.id, won, updatedAttempts);
+
+            const xpEarned = calculateClassicXP(won, updatedAttempts);
+            if (xpEarned > 0) {
+                await awardXP(
+                    req.user.id,
+                    won ? 'classic_win' : 'classic_lose',
+                    xpEarned,
+                    won
+                        ? `Classic win in ${updatedAttempts} attempts`
+                        : 'Classic loss',
+                );
+            }
+
+            if (won && board) {
+                const streakBonus = calculateStreakBonus(board.current_streak || 0);
+                if (streakBonus > 0) {
+                    await awardXP(
+                        req.user.id,
+                        'streak_bonus',
+                        streakBonus,
+                        `Classic streak bonus (${board.current_streak} wins)`
+                    );
+                }
+            }
+        }
 
         return res.status(200).json({
             guess:            normalizedGuess,

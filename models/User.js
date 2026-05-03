@@ -26,6 +26,21 @@ const User = sequelize.define('User', {
         allowNull: false,
         defaultValue: 0,
     },
+    total_xp: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+    },
+    current_level: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 1,
+    },
+    current_title: {
+        type: DataTypes.STRING(50),
+        allowNull: false,
+        defaultValue: 'Beginner',
+    },
     refresh_token: { type: DataTypes.TEXT, allowNull: true },
 }, {
     tableName: 'users',
