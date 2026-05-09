@@ -1,10 +1,10 @@
-const { Op }                                                          = require('sequelize');
-const { getWordForUser, getWordForGuest }                             = require('../utils/wordSelector');
-const { calculateClassicXP, calculateStreakBonus, awardXP }          = require('../utils/xpCalculator');
-const { checkAndAwardBadges }                                         = require('../utils/badgeChecker');
-const { assignDailyMissions, checkMissionsAfterGame }                 = require('../utils/missionChecker');
-const { v4: uuidv4 }                                                  = require('uuid');
-const { User, Word, Game, Leaderboard }                               = require('../models');
+const { Op }                                                 = require('sequelize');
+const { getWordForUser, getWordForGuest }                    = require('../utils/wordSelector');
+const { calculateClassicXP, calculateStreakBonus, awardXP }  = require('../utils/xpCalculator');
+const { checkAndAwardBadges }                                = require('../utils/badgeChecker');
+const { assignDailyMissions, checkMissionsAfterGame }        = require('../utils/missionChecker');
+const { v4: uuidv4 }                                         = require('uuid');
+const { User, Word, Game, Leaderboard, SpeedGame }           = require('../models');
 
 // ─── Helper: get or create guest session token ────────────────────────────────
 const getGuestToken = (req, res) => {
@@ -108,7 +108,7 @@ const getDailyInfo = async (req, res) => {
             });
         }
 
-        // ── Assign daily missions if not already assigned ─────────────
+        // ── Assign daily missions ─────────────────────────────────────
         await assignDailyMissions(req.user.id);
 
         const existingGame = await Game.findOne({
@@ -164,7 +164,7 @@ const submitGuess = async (req, res) => {
         const isAuth          = req.user !== null && req.user !== undefined;
         const MAX_GUESSES     = isAuth ? 6 : 5;
 
-        // ── Validate word exists in DB ────────────────────────────────
+        // ── Validate word exists ──────────────────────────────────────
         const wordExists = await Word.findOne({ where: { word: normalizedGuess } });
         if (!wordExists)
             return res.status(400).json({ message: 'Not in word list.' });
@@ -279,13 +279,39 @@ const submitGuess = async (req, res) => {
                 totalWinsIn1,
             });
 
-            // ── Count today's total games ─────────────────────────────
+            // ── Count today's games ───────────────────────────────────
             const todayStart = new Date();
             todayStart.setHours(0, 0, 0, 0);
 
-            const totalGamesToday = await Game.count({
+            const totalClassicGamesToday = await Game.count({
                 where: {
                     user_id:   req.user.id,
+                    played_at: { [Op.gte]: todayStart },
+                },
+            });
+
+            const totalSpeedGamesToday = await SpeedGame.count({
+                where: {
+                    user_id:   req.user.id,
+                    played_at: { [Op.gte]: todayStart },
+                },
+            });
+
+            const totalGamesToday = totalClassicGamesToday + totalSpeedGamesToday;
+
+            // ── Check if won other mode today ─────────────────────────
+            const speedWonToday = await SpeedGame.findOne({
+                where: {
+                    user_id:   req.user.id,
+                    won:       true,
+                    played_at: { [Op.gte]: todayStart },
+                },
+            });
+
+            const classicWonToday = await Game.findOne({
+                where: {
+                    user_id:   req.user.id,
+                    won:       1,
                     played_at: { [Op.gte]: todayStart },
                 },
             });
@@ -293,8 +319,13 @@ const submitGuess = async (req, res) => {
             // ── Check missions ────────────────────────────────────────
             completedMissions = await checkMissionsAfterGame(req.user.id, {
                 won,
-                isSpeedMode:    false,
+                isSpeedMode:            false,
+                attempts:               updatedAttempts,
                 totalGamesToday,
+                totalClassicGamesToday,
+                totalSpeedGamesToday,
+                classicWonToday:        !!classicWonToday,
+                speedWonToday:          !!speedWonToday,
             });
         }
 
