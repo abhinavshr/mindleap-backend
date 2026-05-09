@@ -29,6 +29,21 @@ const DailyMission = sequelize.define('DailyMission', {
         type:      DataTypes.INTEGER,
         allowNull: false,
     },
+    mission_type: {
+        type:         DataTypes.ENUM('daily', 'weekly'),
+        allowNull:    false,
+        defaultValue: 'daily',
+    },
+    progress: {
+        type:         DataTypes.INTEGER,
+        allowNull:    false,
+        defaultValue: 0,
+    },
+    target: {
+        type:         DataTypes.INTEGER,
+        allowNull:    false,
+        defaultValue: 1,
+    },
     completed: {
         type:         DataTypes.BOOLEAN,
         allowNull:    false,
