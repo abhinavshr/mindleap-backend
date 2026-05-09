@@ -1,9 +1,9 @@
-const { Op }                                                 = require('sequelize');
-const { pickRandomWord }                                     = require('../utils/wordSelector');
-const { calculateXP, calculateStreakBonus, awardXP }         = require('../utils/xpCalculator');
-const { checkAndAwardBadges }                                = require('../utils/badgeChecker');
-const { assignDailyMissions, checkMissionsAfterGame }        = require('../utils/missionChecker');
-const { User, Word, SpeedSession, SpeedGame, SpeedLeaderboard } = require('../models');
+const { Op }                                                    = require('sequelize');
+const { pickRandomWord }                                        = require('../utils/wordSelector');
+const { calculateXP, calculateStreakBonus, awardXP }            = require('../utils/xpCalculator');
+const { checkAndAwardBadges }                                   = require('../utils/badgeChecker');
+const { assignDailyMissions, checkMissionsAfterGame }           = require('../utils/missionChecker');
+const { User, Word, Game, SpeedSession, SpeedGame, SpeedLeaderboard } = require('../models');
 
 const SPEED_TIME_LIMIT = 60;
 const MAX_GUESSES      = 6;
@@ -120,12 +120,56 @@ const updateSpeedLeaderboard = async (userId, won, timeTaken, attempts, xpEarned
     return board;
 };
 
+// ─── Helper: get today's game counts ─────────────────────────────────────────
+const getTodayCounts = async (userId) => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const totalSpeedGamesToday = await SpeedGame.count({
+        where: {
+            user_id:   userId,
+            played_at: { [Op.gte]: todayStart },
+        },
+    });
+
+    const totalClassicGamesToday = await Game.count({
+        where: {
+            user_id:   userId,
+            played_at: { [Op.gte]: todayStart },
+        },
+    });
+
+    const classicWonToday = await Game.findOne({
+        where: {
+            user_id:   userId,
+            won:       1,
+            played_at: { [Op.gte]: todayStart },
+        },
+    });
+
+    const speedWonToday = await SpeedGame.findOne({
+        where: {
+            user_id:   userId,
+            won:       true,
+            played_at: { [Op.gte]: todayStart },
+        },
+    });
+
+    return {
+        totalSpeedGamesToday,
+        totalClassicGamesToday,
+        totalGamesToday:  totalSpeedGamesToday + totalClassicGamesToday,
+        classicWonToday:  !!classicWonToday,
+        speedWonToday:    !!speedWonToday,
+    };
+};
+
 // ─── Start Speed Session ──────────────────────────────────────────────────────
 const startSpeedSession = async (req, res) => {
     try {
         const userId = req.user.id;
 
-        // ── Assign daily missions if not already ──────────────────────
+        // ── Assign daily missions ─────────────────────────────────────
         await assignDailyMissions(userId);
 
         const existingSession = await SpeedSession.findOne({
@@ -134,9 +178,9 @@ const startSpeedSession = async (req, res) => {
         });
 
         if (existingSession) {
-            const now     = new Date();
-            const started = new Date(existingSession.started_at);
-            const elapsed = Math.floor((now - started) / 1000);
+            const now      = new Date();
+            const started  = new Date(existingSession.started_at);
+            const elapsed  = Math.floor((now - started) / 1000);
             const timeLeft = SPEED_TIME_LIMIT - elapsed;
 
             if (elapsed > SPEED_TIME_LIMIT) {
@@ -216,8 +260,6 @@ const submitSpeedGuess = async (req, res) => {
 
         if (elapsed > SPEED_TIME_LIMIT) {
             await session.update({ status: 'expired' });
-
-            // ── Award participation XP on time up ─────────────────────
             await awardXP(req.user.id, 'speed_lose', 5, 'Speed mode time up');
 
             return res.status(200).json({
@@ -287,23 +329,20 @@ const submitSpeedGuess = async (req, res) => {
                 speedWins:  board?.total_speed_wins  || 0,
             });
 
-            // ── Count today's total speed games ───────────────────────
-            const todayStart = new Date();
-            todayStart.setHours(0, 0, 0, 0);
-
-            const totalGamesToday = await SpeedGame.count({
-                where: {
-                    user_id:   req.user.id,
-                    played_at: { [Op.gte]: todayStart },
-                },
-            });
+            // ── Get today counts ──────────────────────────────────────
+            const counts = await getTodayCounts(req.user.id);
 
             // ── Check missions ────────────────────────────────────────
             const completedMissions = await checkMissionsAfterGame(req.user.id, {
-                won:         true,
-                isSpeedMode: true,
+                won:                   true,
+                isSpeedMode:           true,
                 timeTaken,
-                totalGamesToday,
+                attempts,
+                totalGamesToday:       counts.totalGamesToday,
+                totalSpeedGamesToday:  counts.totalSpeedGamesToday,
+                totalClassicGamesToday:counts.totalClassicGamesToday,
+                classicWonToday:       counts.classicWonToday,
+                speedWonToday:         true,
             });
 
             return res.status(200).json({
@@ -341,27 +380,22 @@ const submitSpeedGuess = async (req, res) => {
             );
 
             await updateSpeedLeaderboard(req.user.id, false, timeTaken, attempts, 0);
-
-            // ── Award participation XP on loss ────────────────────────
             await awardXP(req.user.id, 'speed_lose', 5, 'Speed mode participation');
 
-            // ── Count today's total speed games ───────────────────────
-            const todayStart = new Date();
-            todayStart.setHours(0, 0, 0, 0);
+            // ── Get today counts ──────────────────────────────────────
+            const counts = await getTodayCounts(req.user.id);
 
-            const totalGamesToday = await SpeedGame.count({
-                where: {
-                    user_id:   req.user.id,
-                    played_at: { [Op.gte]: todayStart },
-                },
-            });
-
-            // ── Check play 2 games mission ────────────────────────────
+            // ── Check missions ────────────────────────────────────────
             const completedMissions = await checkMissionsAfterGame(req.user.id, {
-                won:         false,
-                isSpeedMode: true,
+                won:                    false,
+                isSpeedMode:            true,
                 timeTaken,
-                totalGamesToday,
+                attempts,
+                totalGamesToday:        counts.totalGamesToday,
+                totalSpeedGamesToday:   counts.totalSpeedGamesToday,
+                totalClassicGamesToday: counts.totalClassicGamesToday,
+                classicWonToday:        counts.classicWonToday,
+                speedWonToday:          counts.speedWonToday,
             });
 
             return res.status(200).json({
