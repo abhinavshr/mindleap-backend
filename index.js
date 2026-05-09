@@ -13,6 +13,7 @@ const gameRoutes        = require('./routes/gameRoutes');
 const leaderboardRoutes = require('./routes/leaderboardRoutes');
 const speedRoutes       = require('./routes/speedRoutes');
 const levelRoutes       = require('./routes/levelRoutes');
+const missionRoutes      = require('./routes/missionRoutes');
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.use('/api/game', gameRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/speed', speedRoutes);
 app.use('/api/level', levelRoutes);
+app.use('/api/missions', missionRoutes);
 
 const PORT = process.env.PORT || 5000;
 
