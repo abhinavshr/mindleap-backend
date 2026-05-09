@@ -158,9 +158,9 @@ const getTodayCounts = async (userId) => {
     return {
         totalSpeedGamesToday,
         totalClassicGamesToday,
-        totalGamesToday:  totalSpeedGamesToday + totalClassicGamesToday,
-        classicWonToday:  !!classicWonToday,
-        speedWonToday:    !!speedWonToday,
+        totalGamesToday: totalSpeedGamesToday + totalClassicGamesToday,
+        classicWonToday: !!classicWonToday,
+        speedWonToday:   !!speedWonToday,
     };
 };
 
@@ -290,7 +290,13 @@ const submitSpeedGuess = async (req, res) => {
                 xpEarned,
             );
 
-            const board = await updateSpeedLeaderboard(req.user.id, true, timeTaken, attempts, xpEarned);
+            const board = await updateSpeedLeaderboard(
+                req.user.id,
+                true,
+                timeTaken,
+                attempts,
+                xpEarned,
+            );
 
             // ── Award speed XP ────────────────────────────────────────
             const xpResult = await awardXP(
@@ -334,15 +340,16 @@ const submitSpeedGuess = async (req, res) => {
 
             // ── Check missions ────────────────────────────────────────
             const completedMissions = await checkMissionsAfterGame(req.user.id, {
-                won:                   true,
-                isSpeedMode:           true,
+                won:                    true,
+                isSpeedMode:            true,
                 timeTaken,
                 attempts,
-                totalGamesToday:       counts.totalGamesToday,
-                totalSpeedGamesToday:  counts.totalSpeedGamesToday,
-                totalClassicGamesToday:counts.totalClassicGamesToday,
-                classicWonToday:       counts.classicWonToday,
-                speedWonToday:         true,
+                totalGamesToday:        counts.totalGamesToday,
+                totalSpeedGamesToday:   counts.totalSpeedGamesToday,
+                totalClassicGamesToday: counts.totalClassicGamesToday,
+                classicWonToday:        counts.classicWonToday,
+                speedWonToday:          true,
+                currentStreak:          board?.current_streak || 0,
             });
 
             return res.status(200).json({
@@ -379,7 +386,15 @@ const submitSpeedGuess = async (req, res) => {
                 0,
             );
 
-            await updateSpeedLeaderboard(req.user.id, false, timeTaken, attempts, 0);
+            // ── Save to variable to get streak ────────────────────────
+            const lostBoard = await updateSpeedLeaderboard(
+                req.user.id,
+                false,
+                timeTaken,
+                attempts,
+                0,
+            );
+
             await awardXP(req.user.id, 'speed_lose', 5, 'Speed mode participation');
 
             // ── Get today counts ──────────────────────────────────────
@@ -396,6 +411,7 @@ const submitSpeedGuess = async (req, res) => {
                 totalClassicGamesToday: counts.totalClassicGamesToday,
                 classicWonToday:        counts.classicWonToday,
                 speedWonToday:          counts.speedWonToday,
+                currentStreak:          lostBoard?.current_streak || 0,  // ← fixed
             });
 
             return res.status(200).json({

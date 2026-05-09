@@ -326,6 +326,7 @@ const submitGuess = async (req, res) => {
                 totalSpeedGamesToday,
                 classicWonToday:        !!classicWonToday,
                 speedWonToday:          !!speedWonToday,
+                currentStreak:          board?.current_streak || 0,
             });
         }
 
