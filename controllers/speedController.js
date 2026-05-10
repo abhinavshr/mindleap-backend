@@ -94,13 +94,25 @@ const updateSpeedLeaderboard = async (userId, won, timeTaken, attempts, xpEarned
             ((board.avg_attempts * board.total_speed_wins + attempts) / newTotalWins).toFixed(2)
         );
 
+        // ── Streak logic ──────────────────────────────────────────────
         const lastPlayed = board.last_played
             ? new Date(board.last_played).toISOString().split('T')[0]
             : null;
 
-        newStreak    = lastPlayed === yesterday ? board.current_streak + 1 : 1;
+        if (lastPlayed === today) {
+            // ── Already played today — keep streak as is ──────────────
+            newStreak = board.current_streak;
+        } else if (lastPlayed === yesterday) {
+            // ── Played yesterday — continue streak ────────────────────
+            newStreak = board.current_streak + 1;
+        } else {
+            // ── Missed days — reset streak to 1 ──────────────────────
+            newStreak = 1;
+        }
+
         newMaxStreak = Math.max(board.max_streak, newStreak);
     } else {
+        // ── Lost — reset streak ───────────────────────────────────────
         newStreak = 0;
     }
 
@@ -169,7 +181,6 @@ const startSpeedSession = async (req, res) => {
     try {
         const userId = req.user.id;
 
-        // ── Assign daily missions ─────────────────────────────────────
         await assignDailyMissions(userId);
 
         const existingSession = await SpeedSession.findOne({
@@ -237,7 +248,6 @@ const submitSpeedGuess = async (req, res) => {
 
         const normalizedGuess = guess.toLowerCase().trim();
 
-        // ── Validate word exists ──────────────────────────────────────
         const validWord = await Word.findOne({ where: { word: normalizedGuess } });
         if (!validWord)
             return res.status(400).json({ message: 'Not a valid word. Please try again.' });
@@ -253,7 +263,6 @@ const submitSpeedGuess = async (req, res) => {
         if (session.status !== 'active')
             return res.status(400).json({ message: 'Session already ended.', status: session.status });
 
-        // ── Check time ────────────────────────────────────────────────
         const now     = new Date();
         const started = new Date(session.started_at);
         const elapsed = Math.floor((now - started) / 1000);
@@ -261,7 +270,6 @@ const submitSpeedGuess = async (req, res) => {
         if (elapsed > SPEED_TIME_LIMIT) {
             await session.update({ status: 'expired' });
             await awardXP(req.user.id, 'speed_lose', 5, 'Speed mode time up');
-
             return res.status(200).json({
                 timeUp: true,
                 secret: session.Word.word,
@@ -291,14 +299,9 @@ const submitSpeedGuess = async (req, res) => {
             );
 
             const board = await updateSpeedLeaderboard(
-                req.user.id,
-                true,
-                timeTaken,
-                attempts,
-                xpEarned,
+                req.user.id, true, timeTaken, attempts, xpEarned,
             );
 
-            // ── Award speed XP ────────────────────────────────────────
             const xpResult = await awardXP(
                 req.user.id,
                 'speed_win',
@@ -306,7 +309,6 @@ const submitSpeedGuess = async (req, res) => {
                 `Speed win in ${timeTaken}s (${attempts} attempts)`,
             );
 
-            // ── Award streak bonus XP ─────────────────────────────────
             if (board) {
                 const streakBonus = calculateStreakBonus(board.current_streak || 0);
                 if (streakBonus > 0) {
@@ -319,7 +321,6 @@ const submitSpeedGuess = async (req, res) => {
                 }
             }
 
-            // ── Check badges ──────────────────────────────────────────
             const user = await User.findByPk(req.user.id, {
                 attributes: ['id', 'current_level'],
             });
@@ -335,10 +336,8 @@ const submitSpeedGuess = async (req, res) => {
                 speedWins:  board?.total_speed_wins  || 0,
             });
 
-            // ── Get today counts ──────────────────────────────────────
             const counts = await getTodayCounts(req.user.id);
 
-            // ── Check missions ────────────────────────────────────────
             const completedMissions = await checkMissionsAfterGame(req.user.id, {
                 won:                    true,
                 isSpeedMode:            true,
@@ -386,21 +385,14 @@ const submitSpeedGuess = async (req, res) => {
                 0,
             );
 
-            // ── Save to variable to get streak ────────────────────────
             const lostBoard = await updateSpeedLeaderboard(
-                req.user.id,
-                false,
-                timeTaken,
-                attempts,
-                0,
+                req.user.id, false, timeTaken, attempts, 0,
             );
 
             await awardXP(req.user.id, 'speed_lose', 5, 'Speed mode participation');
 
-            // ── Get today counts ──────────────────────────────────────
             const counts = await getTodayCounts(req.user.id);
 
-            // ── Check missions ────────────────────────────────────────
             const completedMissions = await checkMissionsAfterGame(req.user.id, {
                 won:                    false,
                 isSpeedMode:            true,
@@ -411,7 +403,7 @@ const submitSpeedGuess = async (req, res) => {
                 totalClassicGamesToday: counts.totalClassicGamesToday,
                 classicWonToday:        counts.classicWonToday,
                 speedWonToday:          counts.speedWonToday,
-                currentStreak:          lostBoard?.current_streak || 0,  // ← fixed
+                currentStreak:          lostBoard?.current_streak || 0,
             });
 
             return res.status(200).json({
