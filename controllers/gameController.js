@@ -49,6 +49,9 @@ const evaluateGuess = (guess, answer) => {
 const updateLeaderboard = async (userId, won, attempts) => {
     let board = await Leaderboard.findOne({ where: { user_id: userId } });
 
+    const today     = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
     if (!board) {
         return await Leaderboard.create({
             user_id:        userId,
@@ -63,11 +66,34 @@ const updateLeaderboard = async (userId, won, attempts) => {
 
     const newTotalGames = board.total_games + 1;
     const newTotalWins  = board.total_wins + (won ? 1 : 0);
-    const newStreak     = won ? board.current_streak + 1 : 0;
-    const newMaxStreak  = Math.max(board.max_streak, newStreak);
     const newAvg        = parseFloat(
         ((board.avg_attempts * board.total_games + attempts) / newTotalGames).toFixed(2)
     );
+
+    // ── Streak logic ──────────────────────────────────────────────────
+    let newStreak = 0;
+
+    if (won) {
+        const lastPlayed = board.last_played
+            ? new Date(board.last_played).toISOString().split('T')[0]
+            : null;
+
+        if (lastPlayed === today) {
+            // ── Already played today — keep streak as is ──────────────
+            newStreak = board.current_streak;
+        } else if (lastPlayed === yesterday) {
+            // ── Played yesterday — continue streak ────────────────────
+            newStreak = board.current_streak + 1;
+        } else {
+            // ── Missed days — reset streak to 1 ──────────────────────
+            newStreak = 1;
+        }
+    } else {
+        // ── Lost — reset streak ───────────────────────────────────────
+        newStreak = 0;
+    }
+
+    const newMaxStreak = Math.max(board.max_streak, newStreak);
 
     await board.update({
         total_wins:     newTotalWins,
@@ -299,7 +325,6 @@ const submitGuess = async (req, res) => {
 
             const totalGamesToday = totalClassicGamesToday + totalSpeedGamesToday;
 
-            // ── Check if won other mode today ─────────────────────────
             const speedWonToday = await SpeedGame.findOne({
                 where: {
                     user_id:   req.user.id,
