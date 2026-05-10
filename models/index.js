@@ -11,6 +11,7 @@ const UserXpLog  = require('./UserXpLog');
 const UserBadge  = require('./UserBadge');
 const UserReward = require('./UserReward');
 const DailyMission= require('./DailyMission');
+const StreakMilestone = require('./StreakMilestone');
 
 // ─── Classic Game Associations ────────────────────────────────────────────────
 User.hasMany(Game,         { foreignKey: 'user_id' });
@@ -58,6 +59,10 @@ UserReward.belongsTo(User,{ foreignKey: 'user_id', onDelete: 'CASCADE' });
 User.hasMany(DailyMission,   { foreignKey: 'user_id' });
 DailyMission.belongsTo(User, { foreignKey: 'user_id', onDelete: 'CASCADE' });
 
+// ── Streak Milestone associations ───────────────────────────────────────────
+User.hasMany(StreakMilestone,   { foreignKey: 'user_id' });
+StreakMilestone.belongsTo(User, { foreignKey: 'user_id', onDelete: 'CASCADE' });
+
 
 // ─── Export all models ────────────────────────────────────────────────────────
 module.exports = {
@@ -74,4 +79,5 @@ module.exports = {
     UserBadge,
     UserReward,
     DailyMission,
+    StreakMilestone,
 };
