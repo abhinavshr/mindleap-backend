@@ -3,6 +3,7 @@ const router     = express.Router();
 
 const {
     startSpeedSession,
+    expireSpeedSession,
     submitSpeedGuess,
     getSpeedLeaderboard,
     getMySpeedStats,
@@ -11,6 +12,8 @@ const {
 const { protect } = require('../middleware/auth');
 
 router.post('/start',       protect, startSpeedSession);
+
+router.post('/expire',      protect, expireSpeedSession);
 
 router.post('/guess',       protect, submitSpeedGuess);
 

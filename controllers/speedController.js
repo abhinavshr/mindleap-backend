@@ -232,6 +232,55 @@ const startSpeedSession = async (req, res) => {
     }
 };
 
+// ─── Expire Speed Session (timer hit zero) ───────────────────────────────────
+const expireSpeedSession = async (req, res) => {
+    try {
+        const { sessionId } = req.body;
+
+        if (!sessionId)
+            return res.status(400).json({ message: 'sessionId is required.' });
+
+        const session = await SpeedSession.findOne({
+            where:   { id: sessionId, user_id: req.user.id },
+            include: [{ model: Word }],
+        });
+
+        if (!session)
+            return res.status(404).json({ message: 'Session not found.' });
+
+        if (session.status !== 'active') {
+            return res.status(200).json({
+                timeUp: session.status === 'expired',
+                secret: session.Word?.word,
+                status: session.status,
+            });
+        }
+
+        const now     = new Date();
+        const started = new Date(session.started_at);
+        const elapsed = Math.floor((now - started) / 1000);
+
+        if (elapsed < SPEED_TIME_LIMIT) {
+            return res.status(200).json({
+                timeUp:   false,
+                timeLeft: SPEED_TIME_LIMIT - elapsed,
+            });
+        }
+
+        await session.update({ status: 'expired' });
+        await awardXP(req.user.id, 'speed_lose', 5, 'Speed mode time up');
+
+        return res.status(200).json({
+            timeUp: true,
+            secret: session.Word.word,
+        });
+
+    } catch (err) {
+        console.error('ExpireSpeedSession error:', err.message);
+        return res.status(500).json({ message: 'Server error. Please try again.' });
+    }
+};
+
 // ─── Submit Speed Guess ───────────────────────────────────────────────────────
 const submitSpeedGuess = async (req, res) => {
     try {
@@ -516,6 +565,7 @@ const getMySpeedStats = async (req, res) => {
 
 module.exports = {
     startSpeedSession,
+    expireSpeedSession,
     submitSpeedGuess,
     getSpeedLeaderboard,
     getMySpeedStats,
