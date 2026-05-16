@@ -17,10 +17,22 @@ const missionRoutes      = require('./routes/missionRoutes');
 
 const app = express();
 
+const allowedOrigins = [
+    "http://localhost:5173",
+    "https://mindleap.live"
+];
+
 app.use(cors({
-    origin:      process.env.CLIENT_URL,
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error("Not allowed by CORS"));
+        }
+    },
     credentials: true,
 }));
+
 app.use(express.json());
 app.use(cookieParser());
 app.use(generalLimiter);
