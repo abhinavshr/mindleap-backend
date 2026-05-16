@@ -9,7 +9,7 @@ const transporter = nodemailer.createTransport({
 });
 
 const sendVerificationEmail = async (toEmail, username, userId) => {
-    const verifyUrl = `http://localhost:5000/api/auth/verify-email?id=${userId}`;
+    const verifyUrl = `http://20.255.58.85:5000/api/auth/verify-email?id=${userId}`;
 
     await transporter.sendMail({
         from:    `"MindLeap Team" <${process.env.EMAIL_USER}>`,
